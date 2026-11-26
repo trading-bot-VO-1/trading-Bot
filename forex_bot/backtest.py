@@ -41,7 +41,7 @@ class Position:
     lots: float
     risk_amount: float
     r_dist: float           # initial stop distance in price
-    trail: bool
+    trail: str              # "atr", "none" or "channel"
     stop_kind: str = "SL"   # SL -> BE -> TRAIL
 
 
@@ -63,7 +63,8 @@ class Backtester:
                 "atr": p["atr"].values, "adx": p["adx"].values,
                 "signal": p["signal"].values, "sl_dist": p["sl_dist"].values,
                 "tp_dist": p["tp_dist"].values, "strategy": p["strategy"].values,
-                "trail": p["trail"].values.astype(bool), "news": blocked, "n": len(p),
+                "trail": p["trail"].values, "exit_lo": p["exit_lo"].values,
+                "exit_hi": p["exit_hi"].values, "news": blocked, "n": len(p),
             }
 
     # ---------- helpers ----------
@@ -105,7 +106,7 @@ class Backtester:
         pos = Position(sym, a["strategy"][j], direction, ts, entry,
                        sl=entry - direction * sl_dist, tp=entry + direction * tp_dist,
                        lots=lots, risk_amount=risk_amount, r_dist=sl_dist,
-                       trail=bool(a["trail"][j]))
+                       trail=str(a["trail"][j]))
         self.positions[sym] = pos
         self._check_exit(pos, i, ts)   # stop/target can be hit on the entry candle
 
@@ -152,12 +153,22 @@ class Backtester:
         a = self.arrays[pos.symbol]
         close, atr_now = a["close"][i], a["atr"][i]
         d = pos.direction
+
+        if pos.trail == "channel":          # Donchian exit: stop follows the 20-day channel
+            level = a["exit_lo"][i] if d == 1 else a["exit_hi"][i]
+            if pos.direction == -1:
+                level += self._spread(pos.symbol, i)   # shorts exit at ask
+            if np.isfinite(level) and d * (level - pos.sl) > 0:
+                pos.sl = level
+                pos.stop_kind = "TRAIL" if d * (pos.sl - pos.entry_price) > 0 else "CHANNEL"
+            return
+
         profit = d * (close - pos.entry_price)
 
         if pos.stop_kind == "SL" and profit >= self.cfg.BREAKEVEN_AT_R * pos.r_dist:
             pos.sl = pos.entry_price
             pos.stop_kind = "BE"
-        if pos.trail and pos.stop_kind in ("BE", "TRAIL"):
+        if pos.trail == "atr" and pos.stop_kind in ("BE", "TRAIL"):
             trail = close - d * self.cfg.TRAIL_ATR_MULT * atr_now
             if d * (trail - pos.sl) > 0:
                 pos.sl = trail

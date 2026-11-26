@@ -38,8 +38,10 @@ def connect():
 
 def resolve_symbol(mt5, name):
     """Find the broker's symbol for a pair name (handles suffixes like EURUSDm)."""
-    if mt5.symbol_info(name) is not None:
-        return name
+    suffix = getattr(config, "SYMBOL_SUFFIX", "")
+    for candidate in (name + suffix, name):
+        if mt5.symbol_info(candidate) is not None:
+            return candidate
     candidates = mt5.symbols_get(group=f"{name}*") or []
     names = sorted((s.name for s in candidates), key=len)
     return names[0] if names else None
@@ -76,10 +78,10 @@ def check_server_clock(mt5, symbol):
     now = datetime.now(ZoneInfo("UTC"))
     ny_dst = bool(now.astimezone(ZoneInfo("America/New_York")).dst())
     expected = 3 if ny_dst else 2
-    print(f"Broker server clock: UTC{offset:+d} "
-          f"(NY_CLOSE standard right now = UTC+{expected})")
-    if config.SERVER_TZ == "NY_CLOSE" and offset != expected:
-        print("  !! Your broker does not look like NY_CLOSE time. If the market is open, "
+    print(f"Broker server clock: UTC{offset:+d} | config SERVER_TZ = {config.SERVER_TZ}")
+    configured = expected if config.SERVER_TZ == "NY_CLOSE" else int(config.SERVER_TZ)
+    if offset != configured:
+        print(f"  !! Broker clock (UTC{offset:+d}) does not match config. If the market is open, "
               f"set SERVER_TZ = {offset} in config.py (news + breakout times depend on it).")
 
 

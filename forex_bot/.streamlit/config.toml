@@ -1,0 +1,12 @@
+# Streamlit settings for the Forex Advisor dashboard
+[server]
+# Don't watch files for changes: the venv folder inside the project has thousands
+# of files and watching them makes the dashboard load very slowly on Windows.
+fileWatcherType = "none"
+runOnSave = false
+# Skip the first-run "Email:" prompt; open http://localhost:8501 yourself.
+headless = true
+port = 8501
+
+[browser]
+gatherUsageStats = false

@@ -8,3 +8,5 @@ data/*_D1.csv
 data/specs.json
 results/
 .env
+# personal trading data
+data/signals_log.csv

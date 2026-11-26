@@ -60,6 +60,26 @@ def utc_to_server(utc_naive):
     return utc_naive + pd.Timedelta(hours=int(config.SERVER_TZ))
 
 
+def server_to_utc(ts):
+    """Broker server time (naive Timestamp) -> UTC (naive)."""
+    ts = pd.Timestamp(ts)
+    if config.SERVER_TZ == "NY_CLOSE":
+        ny = ts - pd.Timedelta(hours=7)
+        return ny.tz_localize(NY, ambiguous=False, nonexistent="shift_forward") \
+                 .tz_convert("UTC").tz_localize(None)
+    return ts - pd.Timedelta(hours=int(config.SERVER_TZ))
+
+
+def upcoming(events, currencies, now_server, hours=24):
+    """High-impact events for these currencies in the next `hours` (server time)."""
+    if events is None or events.empty:
+        return events
+    end = now_server + pd.Timedelta(hours=hours)
+    m = events.currency.isin(set(currencies)) & (events.server_time >= now_server) & \
+        (events.server_time <= end)
+    return events[m].sort_values("server_time")
+
+
 # ---------- built-in events ----------
 def _nfp_days(start_year, end_year):
     """NFP = first Friday of the month at 08:30 NY. When the first Friday falls on

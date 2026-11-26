@@ -1,126 +1,134 @@
-# Forex Bot — Backtest Suite (MT5 + Python)
+# Forex Advisor (MT5 + Python)
 
-Backtests **3 strategies** on all 28 major and cross forex pairs, using one shared account, the risk rules from the strategy doc, a **regime filter**, a **news filter** and **walk-forward testing**.
+A **trading advisor** for MetaTrader 5. It tells you what each pair is doing, which trades meet the rules, where to place the entry, stop-loss and take-profit, and what lot size to use for your balance. Then it tracks how your own trades perform.
 
-It never places real trades. It tells you whether the system would have made money.
-
----
-
-## Strategies (`strategies/`)
-
-| Strategy | Market type | Entry | Stop / Target | Trailing |
-|---|---|---|---|---|
-| **trend** | Trending (ADX ≥ 25) | EMA50/200 trend + candle wicks to EMA50 and bounces | 1.5×ATR / 2R | Yes |
-| **breakout** | Trend or neutral | First H1 close beyond the Asian range (00:00–08:59 server) during 09:00–12:59 | Range height (1–2.5×ATR) / 2R | Yes |
-| **meanrev** | Ranging (ADX < 20) | Close outside Bollinger(20,2) + RSI < 30 / > 70 | 1.5×ATR / 1.5R | No |
-
-All signals come from a **closed** candle and enter at the **next** candle's open, so there's no look-ahead.
-
-**Regime filter** (`strategies/combine.py`): each strategy only trades in its market type (see `REGIME_ALLOWED` in `config.py`). All trades are skipped when ATR is below 0.5× or above 2.5× its normal level. If two strategies fire together, the one listed first in `config.STRATEGIES` wins.
-
-## Risk rules (`backtest.py`)
-
-- 1% risk per trade (lot size calculated from the stop distance)
-- Max 3 open trades across all pairs, one per pair
-- No new trades after a 3% loss in a day
-- Bot pauses at a 10% drawdown from the peak
-- Stop moves to breakeven at +1R, then a 1.5×ATR trailing stop (trend and breakout)
-- Real spread from MT5 history (minimum 1 pip) plus $7/lot commission
-- Stop and target in the same candle counts as a stop (pessimistic)
-
-## News filter (`news.py`)
-
-No new trades from **60 min before to 30 min after** a high-impact event for either currency of the pair. An NFP release blocks EURUSD but not EURGBP, for example.
-
-Event sources:
-1. **Built-in:** US Non-Farm Payrolls and FOMC decisions for 2021–2026. These cover the biggest movers.
-2. **`data/news_events.csv`:** add any full calendar here, such as an export from Forex Factory or Investing.com. Required columns:
-   ```
-   time_utc,currency,impact,title
-   2024-03-07 13:15,EUR,High,ECB Rate Decision
-   ```
-   Only `High` impact rows are used. Times must be **UTC**.
-3. **`python news.py --update`:** downloads **this week's** Forex Factory calendar and appends it to that file. Run it weekly and your history builds up; the live bot will use the same function. `python news.py --show` lists the loaded events.
-
-> Until you add a full historical calendar, the backtest only filters NFP and FOMC. Other events (CPI, ECB, BoE and so on) are filtered only from the date you start collecting them.
-
-## Server time (important)
-
-MT5 candles use your **broker's server clock**, and the news times and Asian-session hours depend on it. Most brokers use **"NY close" time** (UTC+2 in winter, UTC+3 in summer), which is the default `SERVER_TZ = "NY_CLOSE"`.
-
-`--download` prints your broker's offset while the market is open. If it warns you, set `SERVER_TZ` to the fixed number it shows (for example `0` or `2`).
+> **It never places, changes or closes a trade.** It only reads prices, your balance, open positions and trade history from MT5. You make every decision and place every order yourself.
 
 ---
 
-## Setup (Windows)
+## Quick start (Windows)
 
-1. Install **MetaTrader 5**, open it and log in to a **demo account**.
-2. In MT5, go to **Tools → Options → Charts** and set **Max bars in chart = Unlimited**.
-3. Copy this folder into your repo, then run:
-   ```
-   python -m venv venv
-   venv\Scripts\activate
+1. Open **MetaTrader 5** and log in (e.g. Exness demo `Exness-MT5Trial16`). Keep it open.
+2. In the project folder:
+   ```powershell
+   .\venv\Scripts\Activate.ps1
    pip install -r requirements.txt
    ```
-   Use Python 3.11 or 3.12.
+3. **Run the strategy lab once** (5–15 min). It decides which strategies may send signals:
+   ```powershell
+   python lab.py
+   ```
+4. **Start the dashboard.** It opens in your browser at http://localhost:8501:
+   ```powershell
+   streamlit run dashboard.py
+   ```
 
-## Run
+Optional: `python run_advisor.py` runs the same checks in the terminal and sends Telegram alerts (see *Alerts* below).
 
-```
-python run_backtest.py --download                 # first run: pull data from MT5 (keep MT5 open)
-python run_backtest.py                            # rerun on cached data after changing config.py
-python run_backtest.py --walk-forward             # tune on 2021-2023, validate on 2024+
-python run_backtest.py --strategies trend         # test one strategy alone
-python run_backtest.py --strategies trend,breakout
-python run_backtest.py --symbols EURUSD,GBPJPY
-python run_backtest.py --no-news --no-regime      # see what the filters add
-python run_backtest.py --no-pause                 # ignore the 10% pause to see the whole period
-```
+---
 
-## Output (`results/<date_time>/`)
+## Dashboard tabs
 
-| File | What it shows |
+| Tab | What it gives you |
 |---|---|
-| `summary.txt` | Totals, then tables per strategy, per year and per pair |
-| `trades.csv` | Every trade: strategy, entry/exit, lots, reason (SL/TP/BE/TRAIL), P&L, R |
-| `per_strategy.csv` / `per_year.csv` / `per_symbol.csv` | Same tables as CSV |
-| `equity.png` | Equity curve and drawdown |
-| `walk_forward.txt` | In-sample vs out-of-sample comparison (with `--walk-forward`) |
+| 🎯 **Signals** | Trade signals from **approved** strategies: pair, BUY/SELL, entry, stop-loss, take-profit, pips, **lot size for your balance**, money at risk, reward:risk, the reason, how to manage the trade, the setup's backtest record on that pair, and warnings. When nothing qualifies it says **"No trade right now."** |
+| 🔎 **Market scanner** | All 28 pairs: D1 and H4 trend, trending/ranging/volatile, ADX, RSI, nearest support and resistance, news in the next 24h, and plain-English advice, e.g. *"Strong uptrend: look for BUYS on pullbacks toward support 1.0820. Avoid selling."* Ranked best-to-worst conditions, with an *Avoid for now* list. |
+| 🧮 **Lot calculator** | For your own trade ideas: pick pair, direction, entry and stop. It gives the exact lot size for your risk %, the pip distance, reward:risk, and warnings. |
+| 📂 **Open trades** | Your live positions, trades **without a stop-loss** (flagged red), and net exposure per currency. |
+| 📓 **Journal** | Every closed trade from MT5 history: P&L, R-multiple, win rate, profit factor, results by pair, and **advisor signals vs your own ideas**. |
+| 🧪 **Strategy lab** | Which strategies are approved or rejected, and why. |
+| 📰 **News** | High-impact events for the next 7 days, with a one-click update from Forex Factory. |
 
-## How to read results
+**Sidebar:** balance, equity, today's P&L, the **daily-loss lock** (red banner at −3%: stop trading for the day), risk-per-trade slider, auto-refresh rate, and a *Show unproven setups* toggle.
 
-Suggested order:
-1. `--no-pause` with all strategies shows the full picture.
-2. Look at the **per-strategy** table. Turn off any strategy with a profit factor below 1.1 (`--strategies ...`).
-3. Look at the **per-pair** table. Remove pairs that lose money from `SYMBOLS`, deciding on **2021–2023 data only**.
-4. Run `--walk-forward`. If the out-of-sample results hold up, the edge is likely real.
+---
 
-Ready for the live demo phase only if **all** of these hold:
-- Profit factor > 1.3 overall and > 1.2 out-of-sample
-- Max drawdown < 15%
-- 200+ trades
-- Profitable in most years
+## How signals are decided
 
-## Known limits
+### 1. Only approved strategies can send a "TAKE" signal
+`lab.py` walk-forward tests every strategy on your broker's data with real spread:
 
-- **Lot value conversion** uses each pair's *current* tick value from MT5. This is exact for xxxUSD pairs and approximate for crosses and JPY pairs, which is fine for research.
-- **NFP dates are rule-based:** first Friday, and when that falls on the 1st–3rd, the next Friday is blocked too. FOMC dates are exact.
-- The daily loss limit uses realised balance and resets at server midnight.
+- **2021–2023** (in-sample) and **2024–now** (out-of-sample, unseen)
+- **Approved** only if profit factor ≥ **1.2 in both periods**, ≥ 100 trades total and ≥ 30 in 2024+
+
+A strategy that fails never produces a TAKE signal. **If none pass, the advisor shows analysis but no signals.** That's deliberate: a signal without a proven edge is just a guess. Re-run `python lab.py` once a month.
+
+### 2. The strategies
+
+| Strategy | Timeframe | Setup |
+|---|---|---|
+| `mtf` | H4 | **Multi-timeframe confluence:** D1 uptrend (above a rising daily EMA50) + H4 pullback (RSI < 40) + H4 closes back above EMA20. Mirror for sells. |
+| `sr_bounce` | H4 | **Support/resistance rejection:** D1 trend + pin-bar rejection at the latest confirmed swing low (buy) or high (sell). |
+| `donchian` | D1 | 55-day breakout, exit on the 20-day channel (Turtle style) |
+| `trend` | H1 | EMA50/200 trend + pullback to EMA50, ADX ≥ 25 |
+| `breakout` | H1 | Asian-range breakout at the London open |
+| `meanrev` | H1 | Bollinger Band + RSI extremes in ranging markets |
+
+Results on Exness data so far (with costs): `trend`, `breakout`, `meanrev` and `donchian` **failed** (profit factor 0.53–0.98). `mtf` and `sr_bounce` are new and untested on real data. Run `lab.py` to see their results.
+
+### 3. Every signal is checked against your account
+A signal turns into **SKIP** (with the reason) when:
+- the **daily-loss lock** is on (−3% today)
+- you already have **3 open trades**, or a trade on that pair
+- it would put **more than 2 same-direction trades on one currency**
+- **high-impact news** for that pair is due within the next hour (or was 30 min ago)
+- the account is too small for the stop at your risk %
+
+### 4. Signals expire
+A signal is valid until the next candle of its timeframe closes. After that it disappears; don't chase it.
+
+---
+
+## Alerts (optional, Telegram)
+1. In Telegram, message **@BotFather**, send `/newbot` and copy the **token**.
+2. Message **@userinfobot** and copy your **chat id**. Also send any message to your new bot once.
+3. Put both into `config.py`: `TELEGRAM_TOKEN = "..."`, `TELEGRAM_CHAT_ID = "..."`
+4. Run `python run_advisor.py`. New **TAKE** signals are sent to your phone.
+
+Without Telegram, the dashboard shows a pop-up when a new signal appears.
+
+---
+
+## Settings (`config.py`)
+- **Broker:** `SERVER_TZ = 0`, `SYMBOL_SUFFIX = "m"` (Exness). Other brokers: usually `SERVER_TZ = "NY_CLOSE"` and their own suffix.
+- **Risk:** `RISK_PER_TRADE`, `DAILY_LOSS_LIMIT`, `MAX_OPEN_TRADES`, `MAX_SAME_CURRENCY`
+- **Lab rules:** `LAB_MIN_PF`, `LAB_MIN_TRADES`, `LAB_MIN_OOS_TRADES`, `LAB_STRATEGIES`
+- **News window:** `NEWS_BLOCK_BEFORE_MIN`, `NEWS_BLOCK_AFTER_MIN`
+- Each strategy's parameters are in its own section.
+
+---
+
+## Research tools (backtesting)
+```powershell
+python run_backtest.py --timeframe H4 --strategies mtf --no-pause
+python run_backtest.py --timeframe H4 --strategies sr_bounce --walk-forward
+python run_backtest.py --download          # refresh price data
+python news.py --update                    # add this week's Forex Factory calendar
+```
+Results are saved in `results/`. The backtester uses the same strategy code as the advisor, so backtest signals and live signals are identical.
+
+---
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `config.py` | Every setting |
-| `mt5_data.py` | MT5 connection, server clock check, data download and cache |
-| `indicators.py` | EMA, ATR, ADX, RSI, Bollinger (MT5-style formulas) |
-| `strategies/trend.py`, `breakout.py`, `meanrev.py` | Signal rules |
-| `strategies/combine.py` | Regime and volatility filter, strategy priority |
-| `news.py` | News calendar and filter, Forex Factory weekly update |
-| `backtest.py` | Portfolio engine with the risk rules |
-| `report.py` | Stats, tables, chart, walk-forward comparison |
-| `run_backtest.py` | Command-line entry point |
+| `dashboard.py` | Streamlit dashboard |
+| `run_advisor.py` | Terminal advisor + Telegram alerts |
+| `advisor.py` | Signal engine (entry/SL/TP, lots, warnings) |
+| `scanner.py` | Market state for all pairs |
+| `risk.py` | Lot size, daily-loss lock, exposure checks |
+| `journal.py` | Your closed trades from MT5 history |
+| `lab.py` | Strategy lab: approves strategies for signals |
+| `live.py` | Read-only MT5 connection |
+| `levels.py` | Support/resistance zones |
+| `news.py`, `alerts.py` | News calendar, Telegram |
+| `strategies/` | All strategy rules + regime filter |
+| `backtest.py`, `run_backtest.py`, `report.py`, `mt5_data.py`, `indicators.py` | Backtesting engine |
 
-## Next
+---
 
-Live executor on an MT5 demo account: order placement, live breakeven and trailing, automatic news updates, Telegram alerts and kill switch, logging, and a Windows VPS.
+## Important
+- Trading forex with leverage can lose more than you expect. Backtest results don't guarantee future results.
+- Use a **demo account** until a strategy is approved **and** has worked on demo for at least 4–8 weeks.
+- This tool is decision support, not financial advice.
