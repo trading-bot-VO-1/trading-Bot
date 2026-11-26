@@ -1,0 +1,10 @@
+venv/
+__pycache__/
+*.pyc
+# price cache (re-download with --download); keep data/news_events.csv
+data/*_M*.csv
+data/*_H*.csv
+data/*_D1.csv
+data/specs.json
+results/
+.env
